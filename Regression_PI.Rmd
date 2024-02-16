@@ -1,0 +1,363 @@
+---
+title: "Recreating Dr. Zhang's Analysis"
+---
+```{r}
+
+library(lme4)
+library(dplyr)
+library(magrittr)
+
+library(lmerTest)
+library(interactions)
+
+library(emmeans)    
+
+library(nlme)
+library(performance) # for calculating ICC
+
+```
+
+# (0) Loading the data
+
+```{r}
+Data <- read.csv("/Users/ekindogailkel/Library/Mobile Documents/com~apple~CloudDocs/PI_manuscript/Regression_Hui/newstruct1.csv")
+
+nrow(unique(Data["subj"])) # 105
+nrow(Data["subj"]) # 14055
+# the Data is already in the long format 
+```
+
+
+```{r}
+
+# Change continuous data to categorical data 
+
+Data$subj<-factor(Data$subj)
+Data$gene<-factor(Data$gene)
+Data$condi<-factor(Data$condi)
+Data$gender<-factor(Data$gender)
+Data$age_category<-factor(Data$age_category)
+
+```
+
+
+# (1) Null model:  
+
+Drop error = task performance, subj = grouping variable 
+
+```{r}
+null_model <- lmer(dropError~1+(1|subj), REML=FALSE, data = Data)
+summary(null_model)
+```
+# (1.b) Calculating ICC:  
+
+```{r}
+ICC <- icc(null_model)
+
+print(ICC)
+```
+
+# (1.c) Calculating DEFF
+
+DEFF is a term used for deciding whether grouping is needed.
+
+Kish, 1965, p.162.
+
+DEFF = 1 + ICC(no_observations/no_clusters - 1)
+
+```{r}
+DEFF <- 1 + 0.25*(nrow(Data["subj"])/nrow(unique(Data["subj"])) - 1)
+
+print(DEFF)
+```
+
+
+# (2) Decomposition of PI performance (dropError) 
+
+- modeling dropError as a function of angleError and distanceError
+- random intercepts and random slopes for the grouping variable subj
+
+angleError = angle between the ideal and actual inbound path 
+distanceError = distance between the ideal and actual inbound path 
+
+
+```{r}
+dropError_decomp <- lmer(dropError ~ angleError + distanceError + (1+1|subj), REML = FALSE, data = Data)
+summary(dropError_decomp)
+confint(dropError_decomp)
+```
+
+
+# (3) Various factors impacting PI performance: (gene*gender*condi*age)
+
+```{r}
+dropError_all <- lmer(dropError ~ gene*gender*condi*age +(1+1|subj), REML = FALSE, data = Data)
+summary(dropError_all)     
+confint(dropError_all)
+```
+
+## Simple (Gene, gender):
+
+gender1 = male, gene1 = carrier
+```{r}
+emm1 <- emmeans(dropError_all, ~ gene : gender)
+pairs(emm1, simple = "each")
+```
+
+
+# (4) Various factors impacting PI performance: (gene*gender*condi*age category)
+
+```{r}
+dropError_all2 <- lmer(dropError~ gene*gender*condi*age_category + (1+1|subj), REML = FALSE, data = Data)
+summary(dropError_all2)
+confint(dropError_all2)
+```
+
+
+```{r}
+emm3 <- emmeans(dropError_all2, ~ age_category:gene)
+pairs(emm3, simple = "each")
+```
+```{r}
+emm4 <- emmeans(dropError_all2, ~ age_category:gene:gender)
+pairs(emm4, simple = "each")
+```
+
+
+# 5 Mediation analysis1: gender/age/gene - distance error - drop error 
+# (5.a) Mediation analysis1: Interaction effects on distance error
+
+```{r}
+media1_step2 <- lmer(distanceError~ gene*gender*condi*age +  (1+1|subj), REML = FALSE, data = Data)
+summary(media1_step2)   
+confint(media1_step2)
+```
+# (5.b) Mediation analysis1: Distance error on PI (drop error)
+
+```{r}
+media1_step3 <- lmer(dropError~ distanceError + (1+1|subj), REML = FALSE, data =  Data)  
+summary(media1_step3)
+confint(media1_step3)
+```
+
+# (5.c) Mediation analysis1: Distance error + interactions on PI (drop error)
+
+```{r}
+media1_step4 <- lmer(dropError~ gene*gender*condi*age + distanceError + (1+1|subj), REML = FALSE, data = Data)
+summary(media1_step4)
+confint(media1_step4)
+```
+
+
+# 6 Mediation analysis2: gender/age/gene - angle error - drop error 
+# (6.a) Mediation analysis2: Interaction effects on angle error
+
+```{r}
+media2_step2 <- lmer(angleError~ gene*gender*condi*age +
+                      (1+1|subj), REML = FALSE, data = Data)
+summary(media2_step2)  
+confint(media2_step2)
+```
+
+# (6.b) Mediation analysis2: Angle error on PI (drop error)
+
+```{r}
+media_step2_3 <- lmer(dropError~ angleError + (1+1|subj), REML = FALSE, data = Data)
+summary(media_step2_3)
+confint(media_step2_3)
+```
+
+# (6.c) Mediation analysis2: Angle error + interactions on PI (drop error)
+
+```{r}
+media_step2_4 <- lmer(dropError~ gene*gender*condi*age + angleError + (1+1|subj), REML = FALSE, data = Data)
+summary(media_step2_4)
+confint(media_step2_4)                      
+```
+
+# (7) Regressing out both angle error and distance error
+
+```{r}
+regress_all <- lmer(dropError~ gene*gender*condi*age + angleError +  distanceError + (1+1|subj), REML = FALSE, data = Data)
+summary(regress_all)
+confint(regress_all)
+```
+
+# (8) Experimental manipulation (condi) - elapsedSearchTime
+```{r}
+cond_1 <- lmer(elapsedSearchTime ~ condi+  (1+condi|subj), REML = FALSE, data = Data)
+summary(cond_1)
+confint(cond_1)
+```
+# (9)  Experimental manipulation (condi) - elapsedSearchTime - Excluding non moving periods ?
+
+# (10) Experimental manipulation (condi) - elapsed path length 
+```{r}
+cond_2 <- lmer(actural_path_lenth ~ condi+  (1+condi|subj), REML = FALSE, data = Data)
+summary(cond_2)
+confint(cond_2)
+```          
+
+# (11) Experimental manipulation (condi) - navigation trajectory 
+
+```{r}
+cond_3 <- lmer(dis_to_actural ~ condi+  (1+condi|subj), REML = FALSE, data = Data)
+summary(cond_3)
+confint(cond_3)
+```         
+
+
+# Subsetting the data as - teleportation and continuous 
+condition = 1 -> teleport
+
+```{r}
+Data_teleport <- subset(Data, condi == 1)
+Data_cont <- subset(Data, condi == 0)
+```
+
+
+# (12) Teleportation condition: Elapsed searching time on drop error (significant) 
+```{r}
+model_teleport1 <- lmer(dropError ~ elapsedSearchTime + (1|subj), REML = FALSE, data = Data_teleport)
+summary(model_teleport1)  
+confint(model_teleport1)
+```
+
+# (13) Continuous condition: Elapsed searching time on drop error (NOT-significant) 
+
+```{r}
+model_cont1 <- lmer(dropError ~ elapsedSearchTime + (1|subj), REML = FALSE, data = Data_cont)
+summary(model_cont1)      
+confint(model_cont1)
+```
+
+# (14) Continuous condition: path length on drop error (significant)
+
+
+```{r}
+model_cont2 <- lmer(dropError ~ actural_path_lenth + (1|subj), REML = FALSE, data = Data_cont)
+summary(model_cont2)       
+confint(model_cont2)
+```
+
+# (15) Teleportation condition: path length on drop error (NOT-significant)
+
+
+```{r}
+model_teleport2 <- lmer(dropError ~ actural_path_lenth + (1|subj), REML = FALSE, data = Data_teleport)
+summary(model_teleport2)     
+confint(model_teleport2)
+```
+
+# 16 Mediation analysis3: Continuous: path length - distance error - drop error 
+
+# (16.a) Mediation analysis3: path length on distance error (step2)
+```{r}
+model_cont3 <- lmer(distanceError ~ actural_path_lenth + (1|subj), REML = FALSE, data = Data_cont)
+summary(model_cont3)  
+confint(model_cont3)
+```
+
+# (16.b) Mediation analysis3: distance error on drop error (step3)
+
+```{r}
+model_cont4 <- lmer(dropError ~ distanceError + (1|subj), REML = FALSE, data = Data_cont)
+summary(model_cont4)  
+confint(model_cont4)
+```
+
+
+# (16.c) Mediation analysis3: distance error + path length on drop error (step4)
+
+```{r}
+model_cont5 <- lmer(dropError ~ actural_path_lenth + distanceError + (1|subj), REML = FALSE, data = Data_cont)
+summary(model_cont5)  
+confint(model_cont5)
+```
+
+
+# 17 Mediation analysis4: Continuous - path length - angle error - drop error 
+# (17.a) Mediation analysis4:path length on angle error (step2)
+
+```{r}
+model_cont6 <- lmer(angleError ~ actural_path_lenth + (1|subj), REML = FALSE, data = Data_cont)
+summary(model_cont6)  
+confint(model_cont6)
+```
+
+# (17.b) Mediation analysis4: angle error on drop error (step3)
+```{r}
+model_cont7 <- lmer(dropError ~ angleError + (1|subj), REML = FALSE, data = Data_cont)
+summary(model_cont7)  
+confint(model_cont7)
+```
+
+
+# (17.c) Mediation analysis4: angle error + path length on drop error (step4)
+```{r}
+model_cont8 <- lmer(dropError ~ actural_path_lenth + angleError + (1|subj), REML = FALSE, data = Data_cont)
+summary(model_cont8)  
+confint(model_cont8)
+```
+
+
+
+# 18 Mediation analysis5: Teleportation: searching time - angle error - drop error 
+# (18.a) Mediation analysis5: searching time on angle error (step2) - NOT-significant
+
+
+
+
+
+
+
+```{r}
+model_teleport3 <- lmer(angleError ~ elapsedSearchTime + (1|subj), REML = FALSE, data = Data_teleport)
+summary(model_teleport3)  
+```
+
+# (18.b) Mediation analysis5: angle error on drop error 
+
+```{r}
+model_teleport4 <- lmer(dropError ~ angleError + (1|subj), REML = FALSE, data = Data_teleport)
+summary(model_teleport4)  
+confint(model_teleport4)
+```
+
+# (18.c) Mediation analysis5: angle error + search time on drop error
+
+
+```{r}
+model_teleport7 <- lmer(dropError ~ elapsedSearchTime + angleError + (1|subj), REML = FALSE, data = Data_teleport)
+summary(model_teleport7)
+confint(model_teleport7)
+```
+
+
+
+# 19 Mediation analysis6: Teleportation - searching time - distance error - drop error 
+# (19.a) Mediation analysis6: searching time on distance error (not signicant)
+
+```{r}
+model_teleport8 <- lmer(distanceError ~ elapsedSearchTime + (1|subj), REML = FALSE, data = Data_teleport)
+summary(model_teleport8)    
+confint(model_teleport8)
+```
+
+# (20) Gene on signed distance error
+```{r}
+signed_distance_model <- lmer(signed_distanceError ~ gene + (1+1|subj), REML = FALSE, data = Data)
+summary(signed_distance_model)
+confint(signed_distance_model)
+```
+
+# (21) Gene on angle error 
+
+```{r}
+angle_error_model <- lmer(angleError ~ gene + (1+1|subj), REML = FALSE, data = Data)
+summary(angle_error_model)
+confint(angle_error_model)
+```
+
+
+
